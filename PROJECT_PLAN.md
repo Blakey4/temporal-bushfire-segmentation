@@ -246,6 +246,82 @@ Analyses already committed to, independent of metric choice:
 
 ---
 
+## 9. Core decisions and plan project work order
+
+## Decisions and justifications
+ 
+**Key constraint:** the friend's 16GB-VRAM PC may only be available for a day, or for limited hours of it. Fallback is the 4GB RTX 3050 laptop.
+ 
+### Preprocessing and data
+ 
+- **D1 (outlier clipping): open.** Decide later.
+- **D2: per-band z-score.**
+  - Statistics from training events only, one shared set for pre and post images, nodata (65535) excluded. AU uses FLOGA's statistics, which keeps RQ2 genuinely zero-shot.
+  - *Why:* preserves absolute reflectance and the pre→post change. Per-image normalisation would erase the change signal the bi-temporal model relies on.
+- **D3: random flips and 90° rotations.**
+  - Applied identically to pre, post and label, with the same policy for every model.
+  - *Why:* only ~334 positive training patches, so overfitting is a real risk. These transforms are label-preserving for overhead imagery, and an identical policy keeps the M1/M2 comparison fair.
+- **D4: `all_touched=False` (pixel centre inside polygon).**
+  - *Why:* `True` fattens AU labels by about one pixel around every perimeter, which would create an artificial recall drop against FLOGA's labels. It is also consistent with treating FN ≈ FP.
+- **D15: balanced 1:1 (positive : negative patches).**
+  - Negatives drawn randomly from all land patches, including label-2 (older burn) patches. Fixed seed, chosen patch IDs saved to the index so every model and seed trains on the same set.
+  - *Why:* follows the natural data distribution with no hand-engineered sampling rule to justify, and matches FLOGA.
+  - *Known limitation:* only ~14 old-burn negatives expected in training. Record the actual count, and mention it if M2 shows little advantage on old burns.
+### Model
+ 
+- **D5: U-Net, no attention.** Still to decide: plain vs residual connections, before building.
+  - *Why:* explainable layer by layer, standard in the burnt-area literature, suited to small data. The research question is about input, not architecture.
+- **D6: depth 4, base width 32.** Move to 64 only if the model underfits.
+  - *Why:* ~334 positives and limited GPU time. Base 64 is about 4× the parameters and compute.
+- **D7: GroupNorm.**
+  - *Why:* works at any batch size, so the same model trains identically on the 4GB and 16GB machines. BatchNorm is unreliable at small batches.
+- **D8: M3 (Siamese) parked** for this project.
+### Training
+ 
+- **D9: masked BCE, ignoring label 255.**
+  - *Why:* post-fire mapping is not real-time, so false negatives are not necessarily costlier than false positives. BCE gives calibrated probabilities and was FLOGA's best-performing loss.
+- **D10: uniform weighting for the core runs.** Event-based or class-based weighting is an optional ablation.
+- **D11: Adam.**
+  - *Why:* robust default.
+- **D12: cosine annealing (leaning; constant is the alternative).**
+  - *Why:* a fixed epoch budget pairs naturally with best-checkpoint selection.
+- **D13: batch size and epochs TBD** from the smoke test.
+- **D14: identical hyperparameters for all models.**
+  - *Why:* the input is the only difference between models. Because M1's hypothesis space is a subset of M2's, any gap reflects estimation or optimisation, not capacity.
+- **D17: select checkpoints by per-event F1** on balanced validation patches grouped by event. Full scenes are used only for the final test.
+  - *Why:* aligns selection with per-event evaluation. Full-scene validation every epoch would cost too much of the limited GPU time.
+- **D18: 3 seeds.** Within a seed, both models see identical batches (data loader seeded separately from model initialisation, deterministic cuDNN).
+### Evaluation
+ 
+- **D16: evaluate on both** balanced test patches (comparable to FLOGA) and full scenes (operational performance).
+- **D19–D22 and DECISIONS §8: deferred to analysis.**
+  - *Why deferral is safe:* only training needs the friend's PC. Evaluation reruns on the 4GB laptop from saved checkpoints.
+  - The D9 reasoning already implies the §8 use case, so write it down when you get there.
+---
+ 
+## Process
+ 
+1. **Decisions.** Done, apart from D1, D5 (plain vs residual) and D13.
+2. **Preprocessing.**
+   - Write the scripts: ignore irrelevant data, slim the dataset, then write `dataset.py`.
+   - Run on ~5 events first, with preprocessing tests.
+3. **Core model code:** `models.py`, `losses.py`, `train.py`.
+4. **Supporting code:** `metrics.py`, `evaluate.py`, `visualisation.py`.
+   - The notebook calls these scripts and holds the full process.
+5. **Simple end-to-end test.**
+6. **Remaining tests and CI.**
+7. **Full preprocessing run** over the whole dataset.
+8. **Smoke test on the 4GB laptop** to estimate compute, then make final adjustments.
+   - Rehearse a fresh-clone setup, with the dataset path read from a config file.
+9. **Train M1 and M2** across all seeds on the friend's PC.
+   - Bring back checkpoints, logs and manifests on the SSD.
+10. **Evaluation and analysis.**
+11. **Tidy the notebook.**
+12. **AU zero-shot**, ideally 10 fires.
+13. **AU analysis.**
+14. **Report and journal.**
+
+---
 ## References
 
 - Hu, Ban & Nascetti (2021). Uni-temporal multispectral imagery for burned area mapping with deep
