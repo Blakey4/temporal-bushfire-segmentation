@@ -1,0 +1,14 @@
+# Data and outputs (far too large for git)
+data/floga_raw/
+data/prepared/
+data/au_fires/
+results/runs/
+
+# Python / Jupyter
+__pycache__/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Notebook backups
+results/logs/*.ipynb
+notebooks/*backup*.ipynb
